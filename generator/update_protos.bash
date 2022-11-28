@@ -1,15 +1,18 @@
-#!/bin/bash
+#!/bin/sh
+
 set -eo pipefail
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
+echo "REPO_ROOT: $REPO_ROOT"
 REPO_PROTOS=${REPO_ROOT}/protos
 GAME_DIR="Protobufs"
 GAME_PATH="${REPO_ROOT}/generator/${GAME_DIR}"
 
 cd ${REPO_ROOT}/generator
 git submodule update --init ${GAME_DIR}
+echo 'Updating protos...'
 
-WORK_DIR=`mktemp -d`
+WORK_DIR="${REPO_ROOT}/generator/tmp"
 # deletes the temp directory
 function cleanup {
     sync || true
@@ -39,12 +42,14 @@ mkdir -p ${WORK_DIR}/orig/google/protobuf
 cp -ra ${GAME_PATH}/google/protobuf/. ${WORK_DIR}/orig/google/protobuf/
 
 cd ${WORK_DIR}
+
 # Add valve_extensions.proto
 cp ${REPO_PROTOS}/valve_extensions.proto ${WORK_DIR}/orig/
 # Add package lines to each protobuf file.
 for f in ${WORK_DIR}/orig/*.proto ; do
     fname=$(basename $f)
-    printf 'syntax = "proto2";\npackage protocol;\n\n' |\
+    echo ${fname}
+    printf 'syntax = "proto2";\npackage protocol;\n\noption go_package = "google.golang.org/protobuf/types/descriptorpb;protocol";\n' |\
         cat - $f |\
         sed -e "s/optional \./optional /g" \
             -e "s/required \./required /g" \
@@ -56,8 +61,15 @@ done
 
 # Generate protobufs
 cd ${WORK_DIR}/protos
+
 protoc -I $(pwd) --go_out=. $(pwd)/*.proto
 
 # Move final files out.
 rsync -rv --delete $(pwd)/ ${REPO_ROOT}/protocol/
 
+
+rm ${REPO_ROOT}/protocol/*.proto
+
+cp ${REPO_ROOT}/protocol/google.golang.org/protobuf/types/descriptorpb/* ${REPO_ROOT}/protocol/
+
+rm -r ${REPO_ROOT}/protocol/google.golang.org
